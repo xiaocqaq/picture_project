@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎨</text></svg>">
+<title>AI 图片生成器</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--surface:#14141f;--surface2:#1e1e2e;--border:#2a2a3e;
+  --text:#e4e4ef;--text2:#8888a0;--accent:#6c5ce7;--accent2:#a29bfe;
+  --glow:rgba(108,92,231,.25);--radius:12px;
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+}
+.header{
+  width:100%;padding:28px 0 20px;text-align:center;
+  background:linear-gradient(180deg,rgba(108,92,231,.08) 0%,transparent 100%);
+}
+.header h1{
+  font-size:28px;font-weight:700;letter-spacing:-.5px;
+  background:linear-gradient(135deg,var(--accent2),var(--accent),#fd79a8);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.header p{color:var(--text2);font-size:14px;margin-top:6px}
+
+.container{width:100%;max-width:820px;padding:0 20px;margin-top:24px}
+
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:24px;margin-bottom:20px;
+  transition:border-color .2s;
+}
+.card:focus-within{border-color:var(--accent)}
+
+label{display:block;font-size:13px;color:var(--text2);margin-bottom:8px;font-weight:500}
+
+textarea{
+  width:100%;min-height:110px;resize:vertical;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:14px;font-size:15px;color:var(--text);line-height:1.6;
+  font-family:inherit;outline:none;transition:border-color .2s;
+}
+textarea:focus{border-color:var(--accent)}
+textarea::placeholder{color:var(--text2)}
+
+.options{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:18px}
+@media(max-width:560px){.options{grid-template-columns:1fr}}
+
+select{
+  width:100%;height:44px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:0 12px;font-size:14px;color:var(--text);
+  cursor:pointer;outline:none;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238888a0'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 12px center;
+  transition:border-color .2s;
+}
+select:focus{border-color:var(--accent)}
+
+.btn-generate{
+  width:100%;height:50px;margin-top:20px;
+  background:linear-gradient(135deg,var(--accent),#a29bfe);
+  border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:600;
+  cursor:pointer;position:relative;overflow:hidden;
+  transition:opacity .2s,transform .1s;
+}
+.btn-generate:hover{opacity:.9}
+.btn-generate:active{transform:scale(.98)}
+.btn-generate:disabled{opacity:.5;cursor:not-allowed}
+
+.btn-generate .spinner{
+  display:none;width:22px;height:22px;
+  border:3px solid rgba(255,255,255,.3);border-top-color:#fff;
+  border-radius:50%;animation:spin .7s linear infinite;
+}
+.btn-generate.loading .label{display:none}
+.btn-generate.loading .spinner{display:inline-block}
+.btn-generate.loading .timer{display:inline}
+.btn-generate .timer{display:none;margin-left:10px;font-size:14px;font-weight:400;opacity:.9}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.status-bar{
+  margin-top:14px;padding:12px 16px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  display:none;align-items:center;gap:10px;font-size:14px;color:var(--text2);
+  animation:fadeUp .3s ease;
+}
+.status-bar.visible{display:flex}
+.status-bar .dot{
+  width:8px;height:8px;border-radius:50%;background:var(--accent);
+  animation:pulse 1.2s ease infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.result-area{margin-top:24px;margin-bottom:40px}
+
+.result-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;margin-bottom:16px;
+  animation:fadeUp .4s ease;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+
+.result-card img{
+  width:100%;display:block;background:var(--surface2);
+  min-height:200px;
+}
+.result-meta{
+  padding:14px 18px;display:flex;align-items:center;justify-content:space-between;
+  border-top:1px solid var(--border);
+}
+.result-meta .info{font-size:13px;color:var(--text2)}
+.btn-download{
+  padding:8px 18px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);font-size:13px;cursor:pointer;
+  text-decoration:none;transition:background .2s;
+}
+.btn-download:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+
+.error-msg{
+  padding:14px 18px;background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);
+  border-radius:8px;color:#ff6b81;font-size:14px;margin-top:16px;
+  animation:fadeUp .3s ease;
+}
+
+.empty-state{
+  text-align:center;padding:60px 20px;color:var(--text2);font-size:15px;
+}
+.empty-state .icon{font-size:48px;margin-bottom:12px;opacity:.4}
+
+.char-count{text-align:right;font-size:12px;color:var(--text2);margin-top:4px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>AI 图片生成器</h1>
+  <p>基于 gpt-image-2 模型</p>
+</div>
+
+<div class="container">
+  <div class="card">
+    <label for="prompt">提示词</label>
+    <textarea id="prompt" placeholder="描述你想生成的图片...&#10;&#10;例如：日落时分的未来城市，有飞行汽车和霓虹灯"></textarea>
+    <div class="char-count"><span id="charCount">0</span> 字符</div>
+
+    <div class="options">
+      <div>
+        <label for="size">尺寸</label>
+        <select id="size">
+          <option value="1024x1024">1024 x 1024 (1:1)</option>
+          <option value="1024x1536">1024 x 1536 (2:3)</option>
+          <option value="1536x1024">1536 x 1024 (3:2)</option>
+        </select>
+      </div>
+      <div>
+        <label for="quality">画质</label>
+        <select id="quality">
+          <option value="low">低</option>
+          <option value="medium" selected>中</option>
+          <option value="high">高</option>
+        </select>
+      </div>
+      <div>
+        <label for="count">数量</label>
+        <select id="count">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn-generate" id="btnGenerate" onclick="generate()">
+      <span class="label">生成图片</span>
+      <span class="spinner"></span>
+      <span class="timer" id="timer"></span>
+    </button>
+
+    <div class="status-bar" id="statusBar">
+      <span class="dot"></span>
+      <span id="statusText">Generating...</span>
+    </div>
+  </div>
+
+  <div class="result-area" id="resultArea">
+    <div class="empty-state" id="emptyState">
+      <div class="icon">&#x1f3a8;</div>
+      <p>生成的图片将展示在这里</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const promptEl = document.getElementById('prompt');
+const charCountEl = document.getElementById('charCount');
+const btn = document.getElementById('btnGenerate');
+const timerEl = document.getElementById('timer');
+const statusBar = document.getElementById('statusBar');
+const statusText = document.getElementById('statusText');
+const resultArea = document.getElementById('resultArea');
+const emptyState = document.getElementById('emptyState');
+
+let generating = false;
+let timerInterval = null;
+
+promptEl.addEventListener('input', () => {
+  charCountEl.textContent = promptEl.value.length;
+});
+
+promptEl.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') generate();
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (generating) { e.preventDefault(); }
+});
+
+function startTimer() {
+  const start = Date.now();
+  timerEl.textContent = '0s';
+  timerInterval = setInterval(() => {
+    const sec = Math.floor((Date.now() - start) / 1000);
+    timerEl.textContent = sec + 's';
+    if (sec < 10) statusText.textContent = '正在发送请求...';
+    else if (sec < 30) statusText.textContent = 'AI 正在生成图片... (' + sec + '秒)';
+    else statusText.textContent = '仍在努力生成中，请耐心等待... (' + sec + '秒)';
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+}
+
+async function generate() {
+  const prompt = promptEl.value.trim();
+  if (!prompt) { promptEl.focus(); return; }
+
+  generating = true;
+  btn.classList.add('loading');
+  btn.disabled = true;
+  statusBar.classList.add('visible');
+  statusText.textContent = '正在发送请求...';
+  startTimer();
+
+  const errPrev = document.querySelector('.error-msg');
+  if (errPrev) errPrev.remove();
+
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        size: document.getElementById('size').value,
+        quality: document.getElementById('quality').value,
+        n: parseInt(document.getElementById('count').value),
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Request failed');
+    }
+
+    const data = await res.json();
+    if (emptyState) emptyState.remove();
+
+    data.images.forEach((img, i) => {
+      const card = document.createElement('div');
+      card.className = 'result-card';
+
+      const ts = new Date().toLocaleTimeString();
+      card.innerHTML = `
+        <img src="${img.data_url}" alt="Generated image" loading="lazy">
+        <div class="result-meta">
+          <span class="info">${data.size} &middot; ${data.quality} &middot; ${ts}</span>
+          <a class="btn-download" href="${img.data_url}" download="nayuto_${Date.now()}_${i}.png">下载</a>
+        </div>
+      `;
+
+      resultArea.prepend(card);
+    });
+
+  } catch (e) {
+    const errDiv = document.createElement('div');
+    errDiv.className = 'error-msg';
+    errDiv.textContent = e.message;
+    resultArea.prepend(errDiv);
+  } finally {
+    generating = false;
+    stopTimer();
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    statusBar.classList.remove('visible');
+  }
+}
+</script>
+</body>
+</html>
