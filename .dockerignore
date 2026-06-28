@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.idea/
+.env
+data/
+.git/
+.gitignore
+openclaw-skill/
+*.md
+crystalline-jumping-cupcake.md
