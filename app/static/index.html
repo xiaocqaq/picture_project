@@ -296,6 +296,7 @@ const lightboxImg = document.getElementById('lightboxImg');
 let generating = false;
 let timerInterval = null;
 let currentPage = 1;
+let activeTaskId = null;
 
 promptEl.addEventListener('input', () => {
   charCountEl.textContent = promptEl.value.length;
@@ -344,6 +345,51 @@ function startTimer() {
   }, 1000);
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pollTask(taskId) {
+  while (generating && activeTaskId === taskId) {
+    const res = await fetch(`api/tasks/${taskId}`);
+    if (!res.ok) throw new Error('任务查询失败');
+    const task = await res.json();
+
+    if (task.status === 'queued') {
+      statusText.textContent = `任务已创建，等待执行... (${task.progress}%)`;
+    } else if (task.status === 'running') {
+      statusText.textContent = `AI 正在生成图片... (${task.progress}%)`;
+    } else if (task.status === 'succeeded') {
+      statusText.textContent = '图片生成完成';
+      return task;
+    } else if (task.status === 'failed') {
+      throw new Error(task.error || '图片生成失败');
+    }
+
+    await wait(1500);
+  }
+  throw new Error('任务已取消');
+}
+
+function renderGeneratedImages(data) {
+  if (emptyState) emptyState.remove();
+
+  data.images.forEach((img, i) => {
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    const ts = new Date().toLocaleTimeString();
+    const imgSrc = img.image_url || (img.filename ? 'images/' + img.filename : img.data_url);
+    card.innerHTML = `
+      <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src)">
+      <div class="result-meta">
+        <span class="info">${data.size} &middot; ${data.quality} &middot; ${ts}</span>
+        <a class="btn-download" href="${imgSrc}" download="image_${Date.now()}_${i}.png">下载</a>
+      </div>
+    `;
+    resultArea.prepend(card);
+  });
+}
+
 function stopTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
@@ -357,7 +403,7 @@ async function generate() {
   btn.classList.add('loading');
   btn.disabled = true;
   statusBar.classList.add('visible');
-  statusText.textContent = '正在发送请求...';
+  statusText.textContent = '正在创建任务...';
   startTimer();
 
   const errPrev = document.querySelector('.error-msg');
@@ -380,23 +426,12 @@ async function generate() {
       throw new Error(err.detail || 'Request failed');
     }
 
-    const data = await res.json();
-    if (emptyState) emptyState.remove();
+    const task = await res.json();
+    activeTaskId = task.task_id;
+    statusText.textContent = `任务 ${task.task_id} 已创建`;
 
-    data.images.forEach((img, i) => {
-      const card = document.createElement('div');
-      card.className = 'result-card';
-      const ts = new Date().toLocaleTimeString();
-      const imgSrc = img.filename ? 'images/' + img.filename : img.data_url;
-      card.innerHTML = `
-        <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src)">
-        <div class="result-meta">
-          <span class="info">${data.size} &middot; ${data.quality} &middot; ${ts}</span>
-          <a class="btn-download" href="${imgSrc}" download="image_${Date.now()}_${i}.png">下载</a>
-        </div>
-      `;
-      resultArea.prepend(card);
-    });
+    const result = await pollTask(task.task_id);
+    renderGeneratedImages(result);
 
   } catch (e) {
     const errDiv = document.createElement('div');
@@ -405,6 +440,7 @@ async function generate() {
     resultArea.prepend(errDiv);
   } finally {
     generating = false;
+    activeTaskId = null;
     stopTimer();
     btn.classList.remove('loading');
     btn.disabled = false;

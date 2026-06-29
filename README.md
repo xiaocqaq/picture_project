@@ -58,7 +58,7 @@ cp .env.example .env
 # 编辑 .env 填入 API Key
 
 # 5. 后台启动（生产模式）
-nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 > app.log 2>&1 &
+nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 > app.log 2>&1 &
 ```
 
 ### 方式二：Systemd 守护进程（推荐）
@@ -74,7 +74,7 @@ After=network.target
 Type=exec
 User=www-data
 WorkingDirectory=/opt/picture_project
-ExecStart=/usr/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+ExecStart=/usr/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/picture_project/.env

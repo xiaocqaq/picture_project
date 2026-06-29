@@ -4,13 +4,14 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.database import init_db, get_db, IMAGES_DIR, THUMBS_DIR
 from app.service import generate_image, AVAILABLE_SIZES, AVAILABLE_QUALITIES
+from app.tasks import task_store
 
 logger = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -67,14 +68,87 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    images: list[dict]
+    task_id: str
+    status: str
+    progress: int
+
+
+class TaskResponse(BaseModel):
+    task_id: str
     prompt: str
     size: str
     quality: str
+    n: int
+    status: str
+    progress: int
+    images: list[dict]
+    error: str | None = None
+    created_at: float
+    updated_at: float
 
 
-@app.post("/api/generate", response_model=GenerateResponse)
-async def api_generate(req: GenerateRequest):
+async def _save_generated_images(prompt: str, size: str, quality: str, images: list[dict]) -> list[dict]:
+    saved_images = []
+    async with get_db() as db:
+        for img in images:
+            filename = f"{uuid.uuid4().hex}.png"
+            filepath = Path(IMAGES_DIR) / filename
+            img_bytes = base64.b64decode(img["b64_json"])
+            filepath.write_bytes(img_bytes)
+
+            await db.execute(
+                "INSERT INTO history (prompt, size, quality, image_path) VALUES (?, ?, ?, ?)",
+                (prompt, size, quality, filename),
+            )
+
+            saved = {
+                **img,
+                "filename": filename,
+                "image_url": f"images/{filename}",
+                "thumb_url": f"thumbs/{filename}",
+            }
+            saved_images.append(saved)
+
+        await db.commit()
+
+    for item in saved_images:
+        try:
+            create_thumbnail(Path(IMAGES_DIR) / item["filename"], item["filename"])
+        except Exception:
+            logger.warning("Unexpected thumbnail failure for %s", item["filename"], exc_info=True)
+    return saved_images
+
+
+async def run_generation_task(task_id: str) -> None:
+    task = task_store.get(task_id)
+    if task is None:
+        return
+
+    logger.info("Generating image task=%s prompt=%r, size=%s, quality=%s, n=%d", task_id, task.prompt[:80], task.size, task.quality, task.n)
+    start = time.time()
+    task_store.update(task_id, status="running", progress=10)
+
+    try:
+        images = await generate_image(
+            prompt=task.prompt,
+            size=task.size,
+            quality=task.quality,
+            n=task.n,
+        )
+        task_store.update(task_id, progress=80)
+        saved_images = await _save_generated_images(task.prompt, task.size, task.quality, images)
+    except Exception as e:
+        logger.error("Generation task=%s failed after %.1fs: %s", task_id, time.time() - start, e)
+        task_store.update(task_id, status="failed", progress=100, error=str(e))
+        return
+
+    elapsed = time.time() - start
+    logger.info("Generation task=%s done: %d image(s) in %.1fs", task_id, len(saved_images), elapsed)
+    task_store.update(task_id, status="succeeded", progress=100, images=saved_images)
+
+
+@app.post("/api/generate", response_model=GenerateResponse, status_code=202)
+async def api_generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     if req.size not in AVAILABLE_SIZES:
         raise HTTPException(400, f"size must be one of {AVAILABLE_SIZES}")
     if req.quality not in AVAILABLE_QUALITIES:
@@ -84,46 +158,17 @@ async def api_generate(req: GenerateRequest):
     if req.n < 1 or req.n > 4:
         raise HTTPException(400, "n must be between 1 and 4")
 
-    logger.info("Generating image: prompt=%r, size=%s, quality=%s, n=%d", req.prompt[:80], req.size, req.quality, req.n)
-    start = time.time()
+    task = task_store.create(req.prompt.strip(), req.size, req.quality, req.n)
+    background_tasks.add_task(run_generation_task, task.task_id)
+    return GenerateResponse(task_id=task.task_id, status=task.status, progress=task.progress)
 
-    try:
-        images = await generate_image(
-            prompt=req.prompt.strip(),
-            size=req.size,
-            quality=req.quality,
-            n=req.n,
-        )
-    except Exception as e:
-        logger.error("Generation failed after %.1fs: %s", time.time() - start, e)
-        raise HTTPException(502, f"Image generation failed: {e}")
 
-    elapsed = time.time() - start
-    logger.info("Generation done: %d image(s) in %.1fs", len(images), elapsed)
-
-    async with get_db() as db:
-        for img in images:
-            filename = f"{uuid.uuid4().hex}.png"
-            filepath = Path(IMAGES_DIR) / filename
-            img_bytes = base64.b64decode(img["b64_json"])
-            filepath.write_bytes(img_bytes)
-            try:
-                create_thumbnail(filepath, filename)
-            except Exception:
-                logger.warning("Unexpected thumbnail failure for %s", filepath, exc_info=True)
-            await db.execute(
-                "INSERT INTO history (prompt, size, quality, image_path) VALUES (?, ?, ?, ?)",
-                (req.prompt.strip(), req.size, req.quality, filename),
-            )
-            img["filename"] = filename
-        await db.commit()
-
-    return GenerateResponse(
-        images=images,
-        prompt=req.prompt.strip(),
-        size=req.size,
-        quality=req.quality,
-    )
+@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
+async def api_task(task_id: str):
+    task = task_store.get(task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    return TaskResponse(**task.to_dict())
 
 
 @app.get("/api/history")

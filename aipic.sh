@@ -20,8 +20,8 @@ VENV_DIR="$PROJECT_DIR/venv"
 ENV_FILE="$PROJECT_DIR/.env"
 ENV_EXAMPLE="$PROJECT_DIR/.env.example"
 REQUIREMENTS="$PROJECT_DIR/requirements.txt"
-PORT=8000
-WORKERS=4
+PORT="${PORT:-8000}"
+WORKERS="${WORKERS:-1}"
 PID_FILE="$PROJECT_DIR/app.pid"
 LOG_FILE="$PROJECT_DIR/app.log"
 UVICORN="$VENV_DIR/bin/uvicorn"
@@ -183,7 +183,7 @@ usage() {
 
 环境变量:
   PORT       指定端口（默认 8000）
-  WORKERS    指定 worker 数量（默认 4）
+  WORKERS    指定 worker 数量（默认 1）
 
 示例:
   $0 start

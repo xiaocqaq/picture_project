@@ -76,8 +76,13 @@ class ThumbnailHistoryTest(unittest.TestCase):
                                 "/api/generate",
                                 json={"prompt": "test", "size": "1024x1024", "quality": "medium", "n": 1},
                             )
-                            self.assertEqual(200, response.status_code)
-                            self.assertEqual(1, len(response.json()["images"]))
+                            self.assertEqual(202, response.status_code)
+                            task_id = response.json()["task_id"]
+
+                            task = client.get(f"/api/tasks/{task_id}")
+                            self.assertEqual(200, task.status_code)
+                            self.assertEqual("succeeded", task.json()["status"])
+                            self.assertEqual(1, len(task.json()["images"]))
 
                             history = client.get("/api/history?page=1&page_size=12")
                             self.assertEqual(200, history.status_code)
