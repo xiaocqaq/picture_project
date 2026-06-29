@@ -10,7 +10,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.database import init_db, get_db, IMAGES_DIR, THUMBS_DIR
-from app.service import generate_image, AVAILABLE_SIZES, AVAILABLE_QUALITIES
+from app.service import (
+    AVAILABLE_QUALITIES,
+    AVAILABLE_SIZES,
+    describe_client,
+    format_exception_chain,
+    generate_image,
+)
 from app.tasks import task_store
 
 logger = logging.getLogger("app")
@@ -58,6 +64,7 @@ def _history_item(row: tuple) -> dict:
 @app.on_event("startup")
 async def startup():
     await init_db()
+    logger.info("Image client startup config: %r", describe_client())
 
 
 class GenerateRequest(BaseModel):
@@ -138,8 +145,9 @@ async def run_generation_task(task_id: str) -> None:
         task_store.update(task_id, progress=80)
         saved_images = await _save_generated_images(task.prompt, task.size, task.quality, images)
     except Exception as e:
-        logger.error("Generation task=%s failed after %.1fs: %s", task_id, time.time() - start, e)
-        task_store.update(task_id, status="failed", progress=100, error=str(e))
+        error_detail = format_exception_chain(e)
+        logger.exception("Generation task=%s failed after %.1fs: %s", task_id, time.time() - start, error_detail)
+        task_store.update(task_id, status="failed", progress=100, error=error_detail)
         return
 
     elapsed = time.time() - start

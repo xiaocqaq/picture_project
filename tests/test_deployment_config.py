@@ -15,10 +15,18 @@ class DeploymentConfigTest(unittest.TestCase):
         script = (ROOT / "aipic.sh").read_text(encoding="utf-8")
 
         self.assertIn("load_env()", script)
-        self.assertIn('set -a\n    . "$ENV_FILE"\n    set +a', script)
+        self.assertIn("tr -d '\\r'", script)
+        self.assertIn('set -a\n    . "$TMP_ENV"\n    set +a', script)
         self.assertIn('mkdir -p "$IMAGES_DIR" "$THUMBS_DIR"', script)
         self.assertIn('require_command "lsof"', script)
         self.assertIn("is_managed_process()", script)
+
+    def test_aipic_prints_runtime_diagnostics(self):
+        script = (ROOT / "aipic.sh").read_text(encoding="utf-8")
+
+        self.assertIn("print_runtime_info()", script)
+        self.assertIn("git -C \"$PROJECT_DIR\" rev-parse --short HEAD", script)
+        self.assertIn("describe_client", script)
 
     def test_docker_uses_single_worker_for_in_memory_tasks(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
