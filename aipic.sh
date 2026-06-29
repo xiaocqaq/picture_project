@@ -6,8 +6,16 @@
 
 set -e
 
-# ---------- 配置（可修改） ----------
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ---------- 解析脚本真实路径（支持软链接） ----------
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+PROJECT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+# -----------------------------------------------
+
 VENV_DIR="$PROJECT_DIR/venv"
 ENV_FILE="$PROJECT_DIR/.env"
 ENV_EXAMPLE="$PROJECT_DIR/.env.example"
@@ -18,7 +26,6 @@ PID_FILE="$PROJECT_DIR/app.pid"
 LOG_FILE="$PROJECT_DIR/app.log"
 UVICORN="$VENV_DIR/bin/uvicorn"
 APP_MODULE="app.main:app"
-# -----------------------------------
 
 # 颜色输出
 RED='\033[0;31m'
@@ -52,6 +59,16 @@ check_env() {
     fi
 }
 
+# 获取主进程 PID（优先从 PID 文件读取）
+get_main_pid() {
+    if [ -f "$PID_FILE" ]; then
+        cat "$PID_FILE"
+    else
+        lsof -t -i:$PORT 2>/dev/null | head -1
+    fi
+}
+
+# 检查服务是否运行
 is_running() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
@@ -59,39 +76,29 @@ is_running() {
             return 0
         else
             rm -f "$PID_FILE"
-            return 1
         fi
     fi
-    # 检查端口是否被占用（备用）
     if lsof -Pi :$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
         return 0
     fi
     return 1
 }
 
-get_pid() {
-    if [ -f "$PID_FILE" ]; then
-        cat "$PID_FILE"
-    else
-        lsof -t -i:$PORT 2>/dev/null
-    fi
-}
-
-# ---------- 子命令实现 ----------
+# ---------- 子命令 ----------
 cmd_start() {
     check_venv
     check_env
 
     if is_running; then
-        warn "服务已在运行中 (PID: $(get_pid))"
+        warn "服务已在运行中 (PID: $(get_main_pid))"
         exit 0
     fi
 
-    # 可选：安装/更新依赖（取消注释即可）
-    # info "安装依赖..."
-    # "$VENV_DIR/bin/pip" install -r "$REQUIREMENTS"
+    info "安装/更新依赖..."
+    "$VENV_DIR/bin/pip" install -r "$REQUIREMENTS"
 
     info "启动服务 (端口 $PORT, workers $WORKERS)..."
+    cd "$PROJECT_DIR"
     nohup "$UVICORN" "$APP_MODULE" --host 0.0.0.0 --port "$PORT" --workers "$WORKERS" > "$LOG_FILE" 2>&1 &
     NEW_PID=$!
     echo $NEW_PID > "$PID_FILE"
@@ -108,10 +115,28 @@ cmd_start() {
 
 cmd_stop() {
     if is_running; then
-        PID=$(get_pid)
-        kill "$PID"
-        rm -f "$PID_FILE"
-        info "已停止进程 PID: $PID"
+        if [ -f "$PID_FILE" ]; then
+            MAIN_PID=$(cat "$PID_FILE")
+            if ps -p "$MAIN_PID" > /dev/null 2>&1; then
+                kill "$MAIN_PID"
+                info "已停止主进程 PID: $MAIN_PID"
+                rm -f "$PID_FILE"
+                sleep 1
+                pkill -P "$MAIN_PID" 2>/dev/null || true
+                exit 0
+            fi
+        fi
+
+        PIDS=$(lsof -t -i:$PORT 2>/dev/null)
+        if [ -n "$PIDS" ]; then
+            echo "$PIDS" | while read -r pid; do
+                [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+            done
+            info "已停止所有占用端口 $PORT 的进程"
+            rm -f "$PID_FILE"
+        else
+            warn "没有运行中的服务"
+        fi
     else
         warn "没有运行中的服务"
     fi
@@ -125,7 +150,7 @@ cmd_restart() {
 
 cmd_status() {
     if is_running; then
-        PID=$(get_pid)
+        PID=$(get_main_pid)
         info "服务正在运行，PID: $PID"
         echo "端口: $PORT"
         echo "日志: $LOG_FILE"

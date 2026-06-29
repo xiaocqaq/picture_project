@@ -1,4 +1,5 @@
 import base64
+import httpx
 from openai import AsyncOpenAI
 from app.config import settings
 
@@ -6,6 +7,8 @@ from app.config import settings
 _client = AsyncOpenAI(
     api_key=settings.NAYUTO_API_KEY,
     base_url=settings.NAYUTO_BASE_URL,
+    timeout=httpx.Timeout(300, connect=30),
+    max_retries=2,
 )
 
 AVAILABLE_SIZES = ["1024x1024", "1024x1536", "1536x1024"]
