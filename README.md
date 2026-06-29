@@ -27,7 +27,7 @@ NAYUTO_BASE_URL=https://api.nayutoai.online/v1
 ### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+pip download -r requirements.txt -d packages/
 ```
 
 ### 3. 启动服务
