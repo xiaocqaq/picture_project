@@ -1,5 +1,3 @@
-import asyncio
-import base64
 import importlib
 import os
 import tempfile
@@ -16,7 +14,7 @@ PNG_1X1 = (
 )
 
 
-class AsyncGenerationTest(unittest.TestCase):
+class SynchronousGenerationTest(unittest.TestCase):
     def setUp(self):
         os.environ.setdefault("NAYUTO_API_KEY", "test-key")
 
@@ -33,49 +31,43 @@ class AsyncGenerationTest(unittest.TestCase):
             import app.config as config
             import app.database as database
             import app.main as main
-            import app.tasks as tasks
 
             importlib.reload(config)
             importlib.reload(database)
-            importlib.reload(tasks)
             return importlib.reload(main)
 
-    def test_generate_returns_snowflake_task_id_and_task_can_be_polled(self):
-        async def fake_generate_image(**_kwargs):
-            await asyncio.sleep(0.01)
-            return [{
-                "b64_json": PNG_1X1,
-                "data_url": f"data:image/png;base64,{PNG_1X1}",
-            }]
+    def test_generate_returns_images_synchronously_without_task_polling(self):
+        generated = [{
+            "b64_json": PNG_1X1,
+            "data_url": f"data:image/png;base64,{PNG_1X1}",
+        }]
 
         with tempfile.TemporaryDirectory() as tmp:
             main = self._reload_app(Path(tmp))
-            with patch.object(main, "generate_image", side_effect=fake_generate_image):
+            generate_mock = AsyncMock(return_value=generated)
+            with patch.object(main, "generate_image", new=generate_mock):
                 with TestClient(main.app) as client:
-                    created = client.post(
+                    response = client.post(
                         "/api/generate",
                         json={"prompt": "test", "size": "1024x1024", "quality": "medium", "n": 1},
                     )
-                    self.assertEqual(202, created.status_code)
-                    payload = created.json()
-                    self.assertRegex(payload["task_id"], r"^\d{15,}$")
-                    self.assertIn(payload["status"], {"queued", "running"})
+                    self.assertEqual(200, response.status_code)
+                    generate_mock.assert_awaited_once()
 
-                    final = None
-                    for _ in range(20):
-                        polled = client.get(f"/api/tasks/{payload['task_id']}")
-                        self.assertEqual(200, polled.status_code)
-                        final = polled.json()
-                        if final["status"] == "succeeded":
-                            break
-                        import time
+                    payload = response.json()
+                    self.assertNotIn("task_id", payload)
+                    self.assertNotIn("status", payload)
+                    self.assertNotIn("progress", payload)
+                    self.assertEqual("test", payload["prompt"])
+                    self.assertEqual(1, len(payload["images"]))
+                    image = payload["images"][0]
+                    self.assertEqual(f"data:image/png;base64,{PNG_1X1}", image["data_url"])
+                    self.assertRegex(image["filename"], r"^[0-9a-f]{32}\.png$")
+                    self.assertEqual(f"images/{image['filename']}", image["image_url"])
+                    self.assertEqual(f"thumbs/{image['filename']}", image["thumb_url"])
 
-                        time.sleep(0.05)
-
-                    self.assertEqual("succeeded", final["status"])
-                    self.assertEqual(100, final["progress"])
-                    self.assertEqual(1, len(final["images"]))
-                    self.assertIn("filename", final["images"][0])
+                    task = client.get("/api/tasks/123")
+                    self.assertEqual(404, task.status_code)
 
     def test_thumbnail_failure_does_not_prevent_history_save(self):
         generated = [{
@@ -88,51 +80,25 @@ class AsyncGenerationTest(unittest.TestCase):
             with patch.object(main, "generate_image", new=AsyncMock(return_value=generated)):
                 with patch.object(main, "create_thumbnail", side_effect=RuntimeError("boom")):
                     with TestClient(main.app) as client:
-                        created = client.post(
+                        response = client.post(
                             "/api/generate",
                             json={"prompt": "test", "size": "1024x1024", "quality": "medium", "n": 1},
                         )
-                        self.assertEqual(202, created.status_code)
-                        task_id = created.json()["task_id"]
+                        self.assertEqual(200, response.status_code)
+                        self.assertEqual(1, len(response.json()["images"]))
 
-                        final = None
-                        for _ in range(20):
-                            polled = client.get(f"/api/tasks/{task_id}")
-                            self.assertEqual(200, polled.status_code)
-                            final = polled.json()
-                            if final["status"] == "succeeded":
-                                break
-                            import time
-
-                            time.sleep(0.05)
-
-                        self.assertEqual("succeeded", final["status"])
                         history = client.get("/api/history?page=1&page_size=12")
                         self.assertEqual(200, history.status_code)
                         self.assertEqual(1, history.json()["total"])
 
-    def test_task_reports_failed_when_image_generation_fails(self):
+    def test_generate_returns_bad_gateway_when_image_generation_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             main = self._reload_app(Path(tmp))
             with patch.object(main, "generate_image", new=AsyncMock(side_effect=RuntimeError("api down"))):
                 with TestClient(main.app) as client:
-                    created = client.post(
+                    response = client.post(
                         "/api/generate",
                         json={"prompt": "test", "size": "1024x1024", "quality": "medium", "n": 1},
                     )
-                    self.assertEqual(202, created.status_code)
-                    task_id = created.json()["task_id"]
-
-                    final = None
-                    for _ in range(20):
-                        polled = client.get(f"/api/tasks/{task_id}")
-                        self.assertEqual(200, polled.status_code)
-                        final = polled.json()
-                        if final["status"] == "failed":
-                            break
-                        import time
-
-                        time.sleep(0.05)
-
-                    self.assertEqual("failed", final["status"])
-                    self.assertIn("api down", final["error"])
+                    self.assertEqual(502, response.status_code)
+                    self.assertIn("api down", response.json()["detail"])
