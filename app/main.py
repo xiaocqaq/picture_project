@@ -8,8 +8,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from PIL import Image
 
-from app.database import init_db, get_db, IMAGES_DIR
+from app.database import init_db, get_db, IMAGES_DIR, THUMBS_DIR
 from app.service import generate_image, AVAILABLE_SIZES, AVAILABLE_QUALITIES
 
 logger = logging.getLogger("app")
@@ -18,6 +19,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 app = FastAPI(title="AI Image Generator")
 
 STATIC_DIR = Path(__file__).parent / "static"
+THUMB_MAX_SIZE = (400, 400)
+
+
+def _make_thumbnail(src_path: Path, filename: str):
+    thumb_path = Path(THUMBS_DIR) / filename
+    with Image.open(src_path) as im:
+        im.thumbnail(THUMB_MAX_SIZE, Image.LANCZOS)
+        im.save(thumb_path, "PNG", optimize=True)
 
 
 @app.on_event("startup")
@@ -73,6 +82,7 @@ async def api_generate(req: GenerateRequest):
             filepath = Path(IMAGES_DIR) / filename
             img_bytes = base64.b64decode(img["b64_json"])
             filepath.write_bytes(img_bytes)
+            _make_thumbnail(filepath, filename)
             await db.execute(
                 "INSERT INTO history (prompt, size, quality, image_path) VALUES (?, ?, ?, ?)",
                 (req.prompt.strip(), req.size, req.quality, filename),
@@ -121,6 +131,10 @@ async def api_delete_history(record_id: int):
         if filepath.exists():
             filepath.unlink()
 
+        thumb_path = Path(THUMBS_DIR) / row[0]
+        if thumb_path.exists():
+            thumb_path.unlink()
+
         await db.execute("DELETE FROM history WHERE id = ?", (record_id,))
         await db.commit()
     return {"ok": True}
@@ -137,6 +151,18 @@ async def serve_image(filename: str):
     if not filepath.exists():
         raise HTTPException(404, "Image not found")
     return FileResponse(filepath, media_type="image/png")
+
+
+@app.get("/thumbs/{filename}")
+async def serve_thumb(filename: str):
+    thumb_path = Path(THUMBS_DIR) / filename
+    if not thumb_path.exists():
+        # 缩略图不存在时尝试从原图生成
+        original = Path(IMAGES_DIR) / filename
+        if not original.exists():
+            raise HTTPException(404, "Image not found")
+        _make_thumbnail(original, filename)
+    return FileResponse(thumb_path, media_type="image/png")
 
 
 @app.get("/")

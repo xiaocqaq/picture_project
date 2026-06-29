@@ -196,10 +196,25 @@ select:focus{border-color:var(--accent)}
 .lightbox{
   display:none;position:fixed;inset:0;z-index:999;
   background:rgba(0,0,0,.85);align-items:center;justify-content:center;
-  cursor:pointer;
+  flex-direction:column;gap:16px;cursor:pointer;
 }
 .lightbox.show{display:flex}
-.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
+.lightbox img{max-width:90vw;max-height:70vh;border-radius:8px}
+.lightbox-prompt{
+  max-width:90vw;padding:12px 20px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:14px;line-height:1.6;
+  max-height:15vh;overflow-y:auto;cursor:text;
+  word-break:break-word;
+}
+.lightbox-prompt:empty{display:none}
+.lightbox-actions{display:flex;gap:10px}
+.lightbox-actions a{
+  padding:8px 18px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);font-size:13px;cursor:pointer;
+  text-decoration:none;transition:background .2s;
+}
+.lightbox-actions a:hover{background:var(--accent);border-color:var(--accent);color:#fff}
 </style>
 </head>
 <body>
@@ -275,8 +290,12 @@ select:focus{border-color:var(--accent)}
   </div>
 </div>
 
-<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+<div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
   <img id="lightboxImg" src="" alt="">
+  <div class="lightbox-prompt" id="lightboxPrompt" onclick="event.stopPropagation()"></div>
+  <div class="lightbox-actions" onclick="event.stopPropagation()">
+    <a id="lightboxDownload" href="" download="image.png">下载原图</a>
+  </div>
 </div>
 
 <script>
@@ -292,6 +311,8 @@ const historyGrid = document.getElementById('historyGrid');
 const paginationEl = document.getElementById('pagination');
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
+const lightboxPrompt = document.getElementById('lightboxPrompt');
+const lightboxDownload = document.getElementById('lightboxDownload');
 
 let generating = false;
 let timerInterval = null;
@@ -318,14 +339,18 @@ function switchTab(name) {
   if (name === 'history') loadHistory(1);
 }
 
-function openLightbox(src) {
+function openLightbox(src, prompt) {
   lightboxImg.src = src;
+  lightboxPrompt.textContent = prompt || '';
+  lightboxDownload.href = src;
   lightbox.classList.add('show');
 }
 
-function closeLightbox() {
+function closeLightbox(e) {
+  if (e && (e.target.closest('.lightbox-prompt') || e.target.closest('.lightbox-actions'))) return;
   lightbox.classList.remove('show');
   lightboxImg.src = '';
+  lightboxPrompt.textContent = '';
 }
 
 document.addEventListener('keydown', (e) => {
@@ -388,8 +413,9 @@ async function generate() {
       card.className = 'result-card';
       const ts = new Date().toLocaleTimeString();
       const imgSrc = img.filename ? 'images/' + img.filename : img.data_url;
+      const promptText = data.prompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
       card.innerHTML = `
-        <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src)">
+        <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src, '${promptText}')">
         <div class="result-meta">
           <span class="info">${data.size} &middot; ${data.quality} &middot; ${ts}</span>
           <a class="btn-download" href="${imgSrc}" download="image_${Date.now()}_${i}.png">下载</a>
@@ -424,19 +450,22 @@ async function loadHistory(page) {
       return;
     }
 
-    historyGrid.innerHTML = data.items.map(item => `
+    historyGrid.innerHTML = data.items.map(item => {
+      const p = item.prompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      return `
       <div class="history-item" id="h-${item.id}">
-        <img src="images/${item.image_path}" alt="" loading="lazy" onclick="openLightbox(this.src)">
+        <img src="thumbs/${item.image_path}" alt="" loading="lazy"
+             onclick="openLightbox('images/${item.image_path}', '${p}')">
         <div class="history-info">
-          <div class="prompt-text" title="${item.prompt}">${item.prompt}</div>
+          <div class="prompt-text" title="${p}">${item.prompt}</div>
           <div class="meta-row">
             <span>${item.size} &middot; ${item.quality}</span>
             <span>${item.created_at}</span>
             <button class="btn-delete" onclick="deleteRecord(${item.id})">删除</button>
           </div>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
     const totalPages = Math.ceil(data.total / data.page_size);
     paginationEl.innerHTML = `
