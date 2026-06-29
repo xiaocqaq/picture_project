@@ -84,19 +84,6 @@ select:focus{border-color:var(--accent)}
 .btn-generate .timer{display:none;margin-left:10px;font-size:14px;font-weight:400;opacity:.9}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-.status-bar{
-  margin-top:14px;padding:12px 16px;
-  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-  display:none;align-items:center;gap:10px;font-size:14px;color:var(--text2);
-  animation:fadeUp .3s ease;
-}
-.status-bar.visible{display:flex}
-.status-bar .dot{
-  width:8px;height:8px;border-radius:50%;background:var(--accent);
-  animation:pulse 1.2s ease infinite;
-}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-
 .result-area{margin-top:24px;margin-bottom:20px}
 
 .result-card{
@@ -255,10 +242,6 @@ select:focus{border-color:var(--accent)}
         <span class="timer" id="timer"></span>
       </button>
 
-      <div class="status-bar" id="statusBar">
-        <span class="dot"></span>
-        <span id="statusText"></span>
-      </div>
     </div>
 
     <div class="result-area" id="resultArea">
@@ -284,8 +267,6 @@ const promptEl = document.getElementById('prompt');
 const charCountEl = document.getElementById('charCount');
 const btn = document.getElementById('btnGenerate');
 const timerEl = document.getElementById('timer');
-const statusBar = document.getElementById('statusBar');
-const statusText = document.getElementById('statusText');
 const resultArea = document.getElementById('resultArea');
 const emptyState = document.getElementById('emptyState');
 const historyGrid = document.getElementById('historyGrid');
@@ -339,9 +320,6 @@ function startTimer() {
   timerInterval = setInterval(() => {
     const sec = Math.floor((Date.now() - start) / 1000);
     timerEl.textContent = sec + 's';
-    if (sec < 10) statusText.textContent = '正在发送请求...';
-    else if (sec < 30) statusText.textContent = 'AI 正在生成图片... (' + sec + '秒)';
-    else statusText.textContent = '仍在努力生成中，请耐心等待... (' + sec + '秒)';
   }, 1000);
 }
 
@@ -355,12 +333,7 @@ async function pollTask(taskId) {
     if (!res.ok) throw new Error('任务查询失败');
     const task = await res.json();
 
-    if (task.status === 'queued') {
-      statusText.textContent = `任务已创建，等待执行... (${task.progress}%)`;
-    } else if (task.status === 'running') {
-      statusText.textContent = `AI 正在生成图片... (${task.progress}%)`;
-    } else if (task.status === 'succeeded') {
-      statusText.textContent = '图片生成完成';
+    if (task.status === 'succeeded') {
       return task;
     } else if (task.status === 'failed') {
       throw new Error(task.error || '图片生成失败');
@@ -402,8 +375,6 @@ async function generate() {
   generating = true;
   btn.classList.add('loading');
   btn.disabled = true;
-  statusBar.classList.add('visible');
-  statusText.textContent = '正在创建任务...';
   startTimer();
 
   const errPrev = document.querySelector('.error-msg');
@@ -428,7 +399,6 @@ async function generate() {
 
     const task = await res.json();
     activeTaskId = task.task_id;
-    statusText.textContent = `任务 ${task.task_id} 已创建`;
 
     const result = await pollTask(task.task_id);
     renderGeneratedImages(result);
@@ -444,7 +414,6 @@ async function generate() {
     stopTimer();
     btn.classList.remove('loading');
     btn.disabled = false;
-    statusBar.classList.remove('visible');
   }
 }
 

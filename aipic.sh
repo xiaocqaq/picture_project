@@ -26,6 +26,8 @@ PID_FILE="$PROJECT_DIR/app.pid"
 LOG_FILE="$PROJECT_DIR/app.log"
 UVICORN="$VENV_DIR/bin/uvicorn"
 APP_MODULE="app.main:app"
+IMAGES_DIR="$PROJECT_DIR/data/images"
+THUMBS_DIR="$PROJECT_DIR/data/thumbs"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -38,7 +40,12 @@ warn()  { echo -e "${YELLOW}⚠️  $1${NC}"; }
 error() { echo -e "${RED}❌ $1${NC}"; exit 1; }
 
 # ---------- 辅助函数 ----------
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || error "缺少命令: $1"
+}
+
 check_venv() {
+    require_command "python3"
     if [ ! -d "$VENV_DIR" ]; then
         info "虚拟环境不存在，正在创建..."
         python3 -m venv "$VENV_DIR"
@@ -61,26 +68,52 @@ check_env() {
     fi
 }
 
+load_env() {
+    ORIGINAL_PORT="$PORT"
+    ORIGINAL_WORKERS="$WORKERS"
+    set -a
+    . "$ENV_FILE"
+    set +a
+    PORT="$ORIGINAL_PORT"
+    WORKERS="$ORIGINAL_WORKERS"
+    export PORT WORKERS
+}
+
+prepare_dirs() {
+    mkdir -p "$IMAGES_DIR" "$THUMBS_DIR"
+}
+
+is_managed_process() {
+    PID="$1"
+    CMD=$(ps -p "$PID" -o args= 2>/dev/null || true)
+    [[ "$CMD" == *"$APP_MODULE"* ]]
+}
+
 # 获取主进程 PID（优先从 PID 文件读取）
 get_main_pid() {
     if [ -f "$PID_FILE" ]; then
-        cat "$PID_FILE"
+        PID=$(cat "$PID_FILE")
+        if is_managed_process "$PID"; then
+            echo "$PID"
+            return 0
+        fi
     else
-        lsof -t -i:$PORT 2>/dev/null | head -1
+        lsof -t -i:"$PORT" 2>/dev/null | head -1
     fi
 }
 
 # 检查服务是否运行
 is_running() {
+    require_command "lsof"
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
-        if ps -p "$PID" > /dev/null 2>&1; then
+        if is_managed_process "$PID"; then
             return 0
         else
             rm -f "$PID_FILE"
         fi
     fi
-    if lsof -Pi :$PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if lsof -Pi :"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
         return 0
     fi
     return 1
@@ -88,8 +121,10 @@ is_running() {
 
 # ---------- 子命令 ----------
 cmd_start() {
-    check_venv
     check_env
+    load_env
+    check_venv
+    prepare_dirs
 
     if is_running; then
         warn "服务已在运行中 (PID: $(get_main_pid))"
@@ -129,7 +164,7 @@ cmd_stop() {
             fi
         fi
 
-        PIDS=$(lsof -t -i:$PORT 2>/dev/null)
+        PIDS=$(lsof -t -i:"$PORT" 2>/dev/null)
         if [ -n "$PIDS" ]; then
             echo "$PIDS" | while read -r pid; do
                 [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
