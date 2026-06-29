@@ -6,25 +6,14 @@ DB_PATH = settings.DB_PATH
 IMAGES_DIR = settings.IMAGES_DIR
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
     prompt TEXT NOT NULL,
     size TEXT NOT NULL,
     quality TEXT NOT NULL,
     image_path TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, created_at DESC);
 """
 
 

@@ -10,7 +10,7 @@
 :root{
   --bg:#0a0a0f;--surface:#14141f;--surface2:#1e1e2e;--border:#2a2a3e;
   --text:#e4e4ef;--text2:#8888a0;--accent:#6c5ce7;--accent2:#a29bfe;
-  --glow:rgba(108,92,231,.25);--radius:12px;
+  --danger:#ff6b81;--radius:12px;
 }
 body{
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
@@ -97,7 +97,7 @@ select:focus{border-color:var(--accent)}
 }
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.result-area{margin-top:24px;margin-bottom:40px}
+.result-area{margin-top:24px;margin-bottom:20px}
 
 .result-card{
   background:var(--surface);border:1px solid var(--border);
@@ -108,7 +108,7 @@ select:focus{border-color:var(--accent)}
 
 .result-card img{
   width:100%;display:block;background:var(--surface2);
-  min-height:200px;
+  min-height:200px;cursor:pointer;
 }
 .result-meta{
   padding:14px 18px;display:flex;align-items:center;justify-content:space-between;
@@ -134,6 +134,72 @@ select:focus{border-color:var(--accent)}
 .empty-state .icon{font-size:48px;margin-bottom:12px;opacity:.4}
 
 .char-count{text-align:right;font-size:12px;color:var(--text2);margin-top:4px}
+
+/* tabs */
+.tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border)}
+.tab{
+  padding:12px 24px;font-size:14px;font-weight:500;color:var(--text2);
+  cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;
+}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent2);border-bottom-color:var(--accent)}
+
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* history grid */
+.history-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:16px;
+}
+.history-item{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;transition:border-color .2s;
+}
+.history-item:hover{border-color:var(--accent)}
+.history-item img{
+  width:100%;aspect-ratio:1;object-fit:cover;display:block;
+  background:var(--surface2);cursor:pointer;
+}
+.history-info{padding:10px 14px}
+.history-info .prompt-text{
+  font-size:13px;color:var(--text);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;line-height:1.5;min-height:39px;
+}
+.history-info .meta-row{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-top:8px;font-size:12px;color:var(--text2);
+}
+.btn-delete{
+  background:none;border:none;color:var(--text2);cursor:pointer;
+  font-size:12px;padding:4px 8px;border-radius:4px;transition:all .2s;
+}
+.btn-delete:hover{color:var(--danger);background:rgba(255,71,87,.1)}
+
+.pagination{
+  display:flex;justify-content:center;align-items:center;gap:12px;
+  margin-top:20px;padding-bottom:40px;
+}
+.pagination button{
+  padding:8px 16px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);font-size:13px;cursor:pointer;
+  transition:all .2s;
+}
+.pagination button:hover:not(:disabled){background:var(--accent);border-color:var(--accent);color:#fff}
+.pagination button:disabled{opacity:.4;cursor:not-allowed}
+.pagination .page-info{font-size:13px;color:var(--text2)}
+
+.history-empty{text-align:center;padding:60px 20px;color:var(--text2);font-size:14px}
+
+/* lightbox */
+.lightbox{
+  display:none;position:fixed;inset:0;z-index:999;
+  background:rgba(0,0,0,.85);align-items:center;justify-content:center;
+  cursor:pointer;
+}
+.lightbox.show{display:flex}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
 </style>
 </head>
 <body>
@@ -144,57 +210,73 @@ select:focus{border-color:var(--accent)}
 </div>
 
 <div class="container">
-  <div class="card">
-    <label for="prompt">提示词</label>
-    <textarea id="prompt" placeholder="描述你想生成的图片...&#10;&#10;例如：日落时分的未来城市，有飞行汽车和霓虹灯"></textarea>
-    <div class="char-count"><span id="charCount">0</span> 字符</div>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('generate')">生成图片</div>
+    <div class="tab" onclick="switchTab('history')">历史记录</div>
+  </div>
 
-    <div class="options">
-      <div>
-        <label for="size">尺寸</label>
-        <select id="size">
-          <option value="1024x1024">1024 x 1024 (1:1)</option>
-          <option value="1024x1536">1024 x 1536 (2:3)</option>
-          <option value="1536x1024">1536 x 1024 (3:2)</option>
-        </select>
+  <div id="tabGenerate" class="tab-content active">
+    <div class="card">
+      <label for="prompt">提示词</label>
+      <textarea id="prompt" placeholder="描述你想生成的图片...&#10;&#10;例如：日落时分的未来城市，有飞行汽车和霓虹灯"></textarea>
+      <div class="char-count"><span id="charCount">0</span> 字符</div>
+
+      <div class="options">
+        <div>
+          <label for="size">尺寸</label>
+          <select id="size">
+            <option value="1024x1024">1024 x 1024 (1:1)</option>
+            <option value="1024x1536">1024 x 1536 (2:3)</option>
+            <option value="1536x1024">1536 x 1024 (3:2)</option>
+          </select>
+        </div>
+        <div>
+          <label for="quality">画质</label>
+          <select id="quality">
+            <option value="low">低</option>
+            <option value="medium" selected>中</option>
+            <option value="high">高</option>
+          </select>
+        </div>
+        <div>
+          <label for="count">数量</label>
+          <select id="count">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label for="quality">画质</label>
-        <select id="quality">
-          <option value="low">低</option>
-          <option value="medium" selected>中</option>
-          <option value="high">高</option>
-        </select>
-      </div>
-      <div>
-        <label for="count">数量</label>
-        <select id="count">
-          <option value="1" selected>1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-        </select>
+
+      <button class="btn-generate" id="btnGenerate" onclick="generate()">
+        <span class="label">生成图片</span>
+        <span class="spinner"></span>
+        <span class="timer" id="timer"></span>
+      </button>
+
+      <div class="status-bar" id="statusBar">
+        <span class="dot"></span>
+        <span id="statusText"></span>
       </div>
     </div>
 
-    <button class="btn-generate" id="btnGenerate" onclick="generate()">
-      <span class="label">生成图片</span>
-      <span class="spinner"></span>
-      <span class="timer" id="timer"></span>
-    </button>
-
-    <div class="status-bar" id="statusBar">
-      <span class="dot"></span>
-      <span id="statusText">Generating...</span>
+    <div class="result-area" id="resultArea">
+      <div class="empty-state" id="emptyState">
+        <div class="icon">&#x1f3a8;</div>
+        <p>生成的图片将展示在这里</p>
+      </div>
     </div>
   </div>
 
-  <div class="result-area" id="resultArea">
-    <div class="empty-state" id="emptyState">
-      <div class="icon">&#x1f3a8;</div>
-      <p>生成的图片将展示在这里</p>
-    </div>
+  <div id="tabHistory" class="tab-content">
+    <div class="history-grid" id="historyGrid"></div>
+    <div class="pagination" id="pagination"></div>
   </div>
+</div>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <img id="lightboxImg" src="" alt="">
 </div>
 
 <script>
@@ -206,9 +288,14 @@ const statusBar = document.getElementById('statusBar');
 const statusText = document.getElementById('statusText');
 const resultArea = document.getElementById('resultArea');
 const emptyState = document.getElementById('emptyState');
+const historyGrid = document.getElementById('historyGrid');
+const paginationEl = document.getElementById('pagination');
+const lightbox = document.getElementById('lightbox');
+const lightboxImg = document.getElementById('lightboxImg');
 
 let generating = false;
 let timerInterval = null;
+let currentPage = 1;
 
 promptEl.addEventListener('input', () => {
   charCountEl.textContent = promptEl.value.length;
@@ -220,6 +307,29 @@ promptEl.addEventListener('keydown', (e) => {
 
 window.addEventListener('beforeunload', (e) => {
   if (generating) { e.preventDefault(); }
+});
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', (name === 'generate' ? i === 0 : i === 1));
+  });
+  document.getElementById('tabGenerate').classList.toggle('active', name === 'generate');
+  document.getElementById('tabHistory').classList.toggle('active', name === 'history');
+  if (name === 'history') loadHistory(1);
+}
+
+function openLightbox(src) {
+  lightboxImg.src = src;
+  lightbox.classList.add('show');
+}
+
+function closeLightbox() {
+  lightbox.classList.remove('show');
+  lightboxImg.src = '';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeLightbox();
 });
 
 function startTimer() {
@@ -276,16 +386,15 @@ async function generate() {
     data.images.forEach((img, i) => {
       const card = document.createElement('div');
       card.className = 'result-card';
-
       const ts = new Date().toLocaleTimeString();
+      const imgSrc = img.filename ? '/images/' + img.filename : img.data_url;
       card.innerHTML = `
-        <img src="${img.data_url}" alt="Generated image" loading="lazy">
+        <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src)">
         <div class="result-meta">
           <span class="info">${data.size} &middot; ${data.quality} &middot; ${ts}</span>
-          <a class="btn-download" href="${img.data_url}" download="nayuto_${Date.now()}_${i}.png">下载</a>
+          <a class="btn-download" href="${imgSrc}" download="image_${Date.now()}_${i}.png">下载</a>
         </div>
       `;
-
       resultArea.prepend(card);
     });
 
@@ -300,6 +409,55 @@ async function generate() {
     btn.classList.remove('loading');
     btn.disabled = false;
     statusBar.classList.remove('visible');
+  }
+}
+
+async function loadHistory(page) {
+  currentPage = page;
+  try {
+    const res = await fetch(`/api/history?page=${page}&page_size=12`);
+    const data = await res.json();
+
+    if (data.items.length === 0) {
+      historyGrid.innerHTML = '<div class="history-empty">暂无历史记录</div>';
+      paginationEl.innerHTML = '';
+      return;
+    }
+
+    historyGrid.innerHTML = data.items.map(item => `
+      <div class="history-item" id="h-${item.id}">
+        <img src="/images/${item.image_path}" alt="" loading="lazy" onclick="openLightbox(this.src)">
+        <div class="history-info">
+          <div class="prompt-text" title="${item.prompt}">${item.prompt}</div>
+          <div class="meta-row">
+            <span>${item.size} &middot; ${item.quality}</span>
+            <span>${item.created_at}</span>
+            <button class="btn-delete" onclick="deleteRecord(${item.id})">删除</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    const totalPages = Math.ceil(data.total / data.page_size);
+    paginationEl.innerHTML = `
+      <button onclick="loadHistory(${page - 1})" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+      <span class="page-info">${page} / ${totalPages}</span>
+      <button onclick="loadHistory(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+    `;
+  } catch (e) {
+    historyGrid.innerHTML = '<div class="history-empty">加载失败</div>';
+  }
+}
+
+async function deleteRecord(id) {
+  if (!confirm('确定删除这条记录？')) return;
+  try {
+    await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    const el = document.getElementById('h-' + id);
+    if (el) el.remove();
+    loadHistory(currentPage);
+  } catch (e) {
+    alert('删除失败');
   }
 }
 </script>

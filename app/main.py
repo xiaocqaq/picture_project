@@ -1,20 +1,28 @@
+import base64
 import logging
 import time
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.database import init_db, get_db, IMAGES_DIR
 from app.service import generate_image, AVAILABLE_SIZES, AVAILABLE_QUALITIES
 
 logger = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-app = FastAPI(title="NayutoAI Image Generator")
+app = FastAPI(title="AI Image Generator")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.on_event("startup")
+async def startup():
+    await init_db()
 
 
 class GenerateRequest(BaseModel):
@@ -59,6 +67,19 @@ async def api_generate(req: GenerateRequest):
     elapsed = time.time() - start
     logger.info("Generation done: %d image(s) in %.1fs", len(images), elapsed)
 
+    async with get_db() as db:
+        for img in images:
+            filename = f"{uuid.uuid4().hex}.png"
+            filepath = Path(IMAGES_DIR) / filename
+            img_bytes = base64.b64decode(img["b64_json"])
+            filepath.write_bytes(img_bytes)
+            await db.execute(
+                "INSERT INTO history (prompt, size, quality, image_path) VALUES (?, ?, ?, ?)",
+                (req.prompt.strip(), req.size, req.quality, filename),
+            )
+            img["filename"] = filename
+        await db.commit()
+
     return GenerateResponse(
         images=images,
         prompt=req.prompt.strip(),
@@ -67,9 +88,55 @@ async def api_generate(req: GenerateRequest):
     )
 
 
+@app.get("/api/history")
+async def api_history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
+    offset = (page - 1) * page_size
+    async with get_db() as db:
+        db.row_factory = None
+        cursor = await db.execute("SELECT COUNT(*) FROM history")
+        total = (await cursor.fetchone())[0]
+
+        cursor = await db.execute(
+            "SELECT id, prompt, size, quality, image_path, created_at FROM history ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (page_size, offset),
+        )
+        rows = await cursor.fetchall()
+
+    items = [
+        {"id": r[0], "prompt": r[1], "size": r[2], "quality": r[3], "image_path": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+@app.delete("/api/history/{record_id}")
+async def api_delete_history(record_id: int):
+    async with get_db() as db:
+        cursor = await db.execute("SELECT image_path FROM history WHERE id = ?", (record_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(404, "Record not found")
+
+        filepath = Path(IMAGES_DIR) / row[0]
+        if filepath.exists():
+            filepath.unlink()
+
+        await db.execute("DELETE FROM history WHERE id = ?", (record_id,))
+        await db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/options")
 async def api_options():
     return {"sizes": AVAILABLE_SIZES, "qualities": AVAILABLE_QUALITIES}
+
+
+@app.get("/images/{filename}")
+async def serve_image(filename: str):
+    filepath = Path(IMAGES_DIR) / filename
+    if not filepath.exists():
+        raise HTTPException(404, "Image not found")
+    return FileResponse(filepath, media_type="image/png")
 
 
 @app.get("/")
