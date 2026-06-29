@@ -183,10 +183,48 @@ select:focus{border-color:var(--accent)}
 .lightbox{
   display:none;position:fixed;inset:0;z-index:999;
   background:rgba(0,0,0,.85);align-items:center;justify-content:center;
-  cursor:pointer;
+  cursor:pointer;padding:24px;
 }
 .lightbox.show{display:flex}
-.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
+.lightbox-panel{
+  width:min(94vw,1080px);max-height:92vh;
+  display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;
+  cursor:default;align-items:stretch;
+}
+.lightbox-media{
+  min-height:0;display:flex;align-items:center;justify-content:center;
+}
+.lightbox img{
+  max-width:100%;max-height:92vh;border-radius:8px;object-fit:contain;
+}
+.lightbox-info{
+  display:none;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:18px;overflow:auto;
+}
+.lightbox.has-info .lightbox-info{display:block}
+.lightbox-prompt-label{
+  font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600;
+}
+.lightbox-prompt{
+  font-size:14px;line-height:1.6;color:var(--text);white-space:pre-wrap;
+  word-break:break-word;
+}
+.lightbox-meta{
+  margin-top:14px;padding-top:14px;border-top:1px solid var(--border);
+  font-size:12px;color:var(--text2);line-height:1.7;
+}
+.lightbox-actions{margin-top:16px}
+.lightbox-download{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:40px;padding:0 16px;background:var(--accent);border-radius:6px;
+  color:#fff;text-decoration:none;font-size:13px;font-weight:600;
+}
+.lightbox-download:hover{background:var(--accent2);color:#fff}
+@media(max-width:760px){
+  .lightbox{padding:14px}
+  .lightbox-panel{grid-template-columns:1fr;max-height:94vh;overflow:auto}
+  .lightbox img{max-height:66vh}
+}
 </style>
 </head>
 <body>
@@ -259,7 +297,19 @@ select:focus{border-color:var(--accent)}
 </div>
 
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <img id="lightboxImg" src="" alt="">
+  <div class="lightbox-panel" onclick="event.stopPropagation()">
+    <div class="lightbox-media">
+      <img id="lightboxImg" src="" alt="">
+    </div>
+    <aside class="lightbox-info" id="lightboxInfo">
+      <div class="lightbox-prompt-label">提示词</div>
+      <div class="lightbox-prompt" id="lightboxPrompt"></div>
+      <div class="lightbox-meta" id="lightboxMeta"></div>
+      <div class="lightbox-actions">
+        <a class="lightbox-download" id="lightboxDownload" href="#" download>下载图片</a>
+      </div>
+    </aside>
+  </div>
 </div>
 
 <script>
@@ -273,10 +323,14 @@ const historyGrid = document.getElementById('historyGrid');
 const paginationEl = document.getElementById('pagination');
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
+const lightboxPrompt = document.getElementById('lightboxPrompt');
+const lightboxMeta = document.getElementById('lightboxMeta');
+const lightboxDownload = document.getElementById('lightboxDownload');
 
 let generating = false;
 let timerInterval = null;
 let currentPage = 1;
+let lightboxBlobUrl = null;
 
 promptEl.addEventListener('input', () => {
   charCountEl.textContent = promptEl.value.length;
@@ -299,15 +353,72 @@ function switchTab(name) {
   if (name === 'history') loadHistory(1);
 }
 
-function openLightbox(src) {
+function openLightbox(src, details = null) {
+  revokeLightboxBlobUrl();
   lightboxImg.src = src;
+  if (details) {
+    lightbox.classList.add('has-info');
+    lightboxPrompt.textContent = details.prompt || '';
+    lightboxMeta.textContent = [details.size, details.quality, details.createdAt].filter(Boolean).join(' · ');
+    lightboxDownload.href = details.downloadUrl || src;
+    lightboxDownload.download = details.filename || 'image.png';
+  } else {
+    lightbox.classList.remove('has-info');
+    lightboxPrompt.textContent = '';
+    lightboxMeta.textContent = '';
+    lightboxDownload.removeAttribute('href');
+    lightboxDownload.removeAttribute('download');
+  }
   lightbox.classList.add('show');
+  if (lightboxImg.complete) {
+    useLoadedPreviewForDownload();
+  }
 }
 
 function closeLightbox() {
+  revokeLightboxBlobUrl();
   lightbox.classList.remove('show');
+  lightbox.classList.remove('has-info');
   lightboxImg.src = '';
+  lightboxPrompt.textContent = '';
+  lightboxMeta.textContent = '';
+  lightboxDownload.removeAttribute('href');
+  lightboxDownload.removeAttribute('download');
 }
+
+function revokeLightboxBlobUrl() {
+  if (lightboxBlobUrl) {
+    URL.revokeObjectURL(lightboxBlobUrl);
+    lightboxBlobUrl = null;
+  }
+}
+
+function useLoadedPreviewForDownload() {
+  if (!lightbox.classList.contains('has-info') || !lightboxImg.naturalWidth) {
+    return;
+  }
+
+  const previewSrc = lightboxImg.currentSrc || lightboxImg.src;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = lightboxImg.naturalWidth;
+    canvas.height = lightboxImg.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(lightboxImg, 0, 0);
+
+    canvas.toBlob((blob) => {
+      const stillSamePreview = previewSrc === (lightboxImg.currentSrc || lightboxImg.src);
+      if (!blob || !lightbox.classList.contains('has-info') || !stillSamePreview) return;
+      revokeLightboxBlobUrl();
+      lightboxBlobUrl = URL.createObjectURL(blob);
+      lightboxDownload.href = lightboxBlobUrl;
+    }, 'image/png');
+  } catch (e) {
+    // 画布被跨域限制时保留原 URL 下载兜底。
+  }
+}
+
+lightboxImg.addEventListener('load', useLoadedPreviewForDownload);
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeLightbox();
@@ -345,6 +456,27 @@ function renderGeneratedImages(data) {
 function stopTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function openHistoryItem(el) {
+  openLightbox(el.dataset.imageUrl, {
+    prompt: el.dataset.prompt,
+    size: el.dataset.size,
+    quality: el.dataset.quality,
+    createdAt: el.dataset.createdAt,
+    downloadUrl: el.dataset.imageUrl,
+    filename: el.dataset.filename || 'history-image.png',
+  });
 }
 
 async function generate() {
@@ -407,14 +539,21 @@ async function loadHistory(page) {
     historyGrid.innerHTML = data.items.map(item => {
       const imageUrl = item.image_url || `images/${item.image_path}`;
       const thumbUrl = item.thumb_url || imageUrl;
+      const safeImageUrl = escapeHtml(imageUrl);
+      const safeThumbUrl = escapeHtml(thumbUrl);
+      const prompt = escapeHtml(item.prompt);
+      const size = escapeHtml(item.size);
+      const quality = escapeHtml(item.quality);
+      const createdAt = escapeHtml(item.created_at);
+      const filename = escapeHtml(item.image_path || 'history-image.png');
       return `
       <div class="history-item" id="h-${item.id}">
-        <img src="${thumbUrl}" alt="" loading="lazy" onclick="openLightbox('${imageUrl}')" onerror="this.onerror=null;this.src='${imageUrl}'">
+        <img src="${safeThumbUrl}" alt="" loading="lazy" onclick="openHistoryItem(this)" onerror="this.onerror=null;this.src='${safeImageUrl}'" data-image-url="${safeImageUrl}" data-prompt="${prompt}" data-size="${size}" data-quality="${quality}" data-created-at="${createdAt}" data-filename="${filename}">
         <div class="history-info">
-          <div class="prompt-text" title="${item.prompt}">${item.prompt}</div>
+          <div class="prompt-text" title="${prompt}">${prompt}</div>
           <div class="meta-row">
-            <span>${item.size} &middot; ${item.quality}</span>
-            <span>${item.created_at}</span>
+            <span>${size} &middot; ${quality}</span>
+            <span>${createdAt}</span>
             <button class="btn-delete" onclick="deleteRecord(${item.id})">删除</button>
           </div>
         </div>

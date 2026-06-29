@@ -12,7 +12,7 @@ logger = logging.getLogger("app")
 _client = AsyncOpenAI(
     api_key=settings.NAYUTO_API_KEY,
     base_url=settings.NAYUTO_BASE_URL,
-    timeout=180.0,
+    timeout=360.0,
     max_retries=0,
 )
 
