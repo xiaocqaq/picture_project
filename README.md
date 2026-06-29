@@ -1,4 +1,4 @@
-# NayutoAI Image Generator
+# AI Image Generator
 
 基于 NayutoAI API 的图片生成应用，使用 FastAPI + OpenAI SDK 构建后端，静态页面作为前端，前后端一体化部署，无跨域问题。
 
@@ -97,23 +97,18 @@ journalctl -u picture-app -f
 
 ### 方式三：Docker 部署
 
-创建 `Dockerfile`：
-
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
-```
-
 ```bash
-# 构建镜像
+# 1. 本地下载依赖包（构建镜像时离线安装，避免容器内访问外网）
+pip download -r requirements.txt -d packages/
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入 API Key
+
+# 3. 构建镜像
 docker build -t picture-app .
 
-# 运行容器
+# 4. 运行容器
 docker run -d --name picture-app -p 8000:8000 --env-file .env picture-app
 ```
 
