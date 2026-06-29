@@ -424,9 +424,12 @@ async function loadHistory(page) {
       return;
     }
 
-    historyGrid.innerHTML = data.items.map(item => `
+    historyGrid.innerHTML = data.items.map(item => {
+      const imageUrl = item.image_url || `images/${item.image_path}`;
+      const thumbUrl = item.thumb_url || imageUrl;
+      return `
       <div class="history-item" id="h-${item.id}">
-        <img src="images/${item.image_path}" alt="" loading="lazy" onclick="openLightbox(this.src)">
+        <img src="${thumbUrl}" alt="" loading="lazy" onclick="openLightbox('${imageUrl}')" onerror="this.onerror=null;this.src='${imageUrl}'">
         <div class="history-info">
           <div class="prompt-text" title="${item.prompt}">${item.prompt}</div>
           <div class="meta-row">
@@ -436,7 +439,7 @@ async function loadHistory(page) {
           </div>
         </div>
       </div>
-    `).join('');
+    `}).join('');
 
     const totalPages = Math.ceil(data.total / data.page_size);
     paginationEl.innerHTML = `

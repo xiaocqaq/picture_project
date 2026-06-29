@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = secrets.token_hex(32)
     DB_PATH: str = "data/app.db"
     IMAGES_DIR: str = "data/images"
+    THUMBS_DIR: str = "data/thumbs"
 
     model_config = {"env_file": ".env"}
 

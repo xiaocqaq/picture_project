@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.database import init_db, get_db, IMAGES_DIR
+from app.database import init_db, get_db, IMAGES_DIR, THUMBS_DIR
 from app.service import generate_image, AVAILABLE_SIZES, AVAILABLE_QUALITIES
 
 logger = logging.getLogger("app")
@@ -18,6 +18,40 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 app = FastAPI(title="AI Image Generator")
 
 STATIC_DIR = Path(__file__).parent / "static"
+THUMB_MAX_SIZE = (400, 400)
+
+
+def create_thumbnail(src_path: Path, filename: str) -> bool:
+    try:
+        from PIL import Image, ImageOps
+
+        thumb_path = Path(THUMBS_DIR) / filename
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with Image.open(src_path) as image:
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail(THUMB_MAX_SIZE, Image.Resampling.LANCZOS)
+            if image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            image.save(thumb_path, "PNG", optimize=True)
+        return True
+    except Exception:
+        logger.warning("Thumbnail creation failed for %s", src_path, exc_info=True)
+        return False
+
+
+def _history_item(row: tuple) -> dict:
+    filename = row[4]
+    return {
+        "id": row[0],
+        "prompt": row[1],
+        "size": row[2],
+        "quality": row[3],
+        "image_path": filename,
+        "image_url": f"images/{filename}",
+        "thumb_url": f"thumbs/{filename}",
+        "created_at": row[5],
+    }
 
 
 @app.on_event("startup")
@@ -73,6 +107,10 @@ async def api_generate(req: GenerateRequest):
             filepath = Path(IMAGES_DIR) / filename
             img_bytes = base64.b64decode(img["b64_json"])
             filepath.write_bytes(img_bytes)
+            try:
+                create_thumbnail(filepath, filename)
+            except Exception:
+                logger.warning("Unexpected thumbnail failure for %s", filepath, exc_info=True)
             await db.execute(
                 "INSERT INTO history (prompt, size, quality, image_path) VALUES (?, ?, ?, ?)",
                 (req.prompt.strip(), req.size, req.quality, filename),
@@ -102,10 +140,7 @@ async def api_history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=
         )
         rows = await cursor.fetchall()
 
-    items = [
-        {"id": r[0], "prompt": r[1], "size": r[2], "quality": r[3], "image_path": r[4], "created_at": r[5]}
-        for r in rows
-    ]
+    items = [_history_item(r) for r in rows]
     return {"total": total, "page": page, "page_size": page_size, "items": items}
 
 
@@ -120,6 +155,10 @@ async def api_delete_history(record_id: int):
         filepath = Path(IMAGES_DIR) / row[0]
         if filepath.exists():
             filepath.unlink()
+
+        thumb_path = Path(THUMBS_DIR) / row[0]
+        if thumb_path.exists():
+            thumb_path.unlink()
 
         await db.execute("DELETE FROM history WHERE id = ?", (record_id,))
         await db.commit()
@@ -137,6 +176,24 @@ async def serve_image(filename: str):
     if not filepath.exists():
         raise HTTPException(404, "Image not found")
     return FileResponse(filepath, media_type="image/png")
+
+
+@app.get("/thumbs/{filename}")
+async def serve_thumb(filename: str):
+    thumb_path = Path(THUMBS_DIR) / filename
+    original_path = Path(IMAGES_DIR) / filename
+    if not original_path.exists():
+        raise HTTPException(404, "Image not found")
+
+    if not thumb_path.exists():
+        try:
+            create_thumbnail(original_path, filename)
+        except Exception:
+            logger.warning("Unexpected thumbnail failure for %s", original_path, exc_info=True)
+
+    if thumb_path.exists():
+        return FileResponse(thumb_path, media_type="image/png")
+    return FileResponse(original_path, media_type="image/png")
 
 
 @app.get("/")

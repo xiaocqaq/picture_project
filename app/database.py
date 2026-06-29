@@ -4,6 +4,7 @@ from app.config import settings
 
 DB_PATH = settings.DB_PATH
 IMAGES_DIR = settings.IMAGES_DIR
+THUMBS_DIR = settings.THUMBS_DIR
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS history (
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS history (
 async def init_db():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
+    Path(THUMBS_DIR).mkdir(parents=True, exist_ok=True)
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
