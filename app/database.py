@@ -4,6 +4,7 @@ from app.config import settings
 
 DB_PATH = settings.DB_PATH
 IMAGES_DIR = settings.IMAGES_DIR
+THUMBS_DIR = str(Path(IMAGES_DIR) / "thumbs")
 
 THUMBS_DIR = str(Path(IMAGES_DIR) / "thumbs")
 

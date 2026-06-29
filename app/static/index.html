@@ -204,8 +204,7 @@ select:focus{border-color:var(--accent)}
   max-width:90vw;padding:12px 20px;
   background:var(--surface);border:1px solid var(--border);border-radius:8px;
   color:var(--text);font-size:14px;line-height:1.6;
-  max-height:15vh;overflow-y:auto;cursor:text;
-  word-break:break-word;
+  max-height:15vh;overflow-y:auto;cursor:text;word-break:break-word;
 }
 .lightbox-prompt:empty{display:none}
 .lightbox-actions{display:flex;gap:10px}
@@ -413,9 +412,9 @@ async function generate() {
       card.className = 'result-card';
       const ts = new Date().toLocaleTimeString();
       const imgSrc = img.filename ? 'images/' + img.filename : img.data_url;
-      const promptText = data.prompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const escapedPrompt = data.prompt.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
       card.innerHTML = `
-        <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src, '${promptText}')">
+        <img src="${imgSrc}" alt="Generated image" loading="lazy" onclick="openLightbox(this.src, '${escapedPrompt}')">
         <div class="result-meta">
           <span class="info">${data.size} &middot; ${data.quality} &middot; ${ts}</span>
           <a class="btn-download" href="${imgSrc}" download="image_${Date.now()}_${i}.png">下载</a>
@@ -451,13 +450,13 @@ async function loadHistory(page) {
     }
 
     historyGrid.innerHTML = data.items.map(item => {
-      const p = item.prompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const p = item.prompt.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
       return `
       <div class="history-item" id="h-${item.id}">
         <img src="thumbs/${item.image_path}" alt="" loading="lazy"
              onclick="openLightbox('images/${item.image_path}', '${p}')">
         <div class="history-info">
-          <div class="prompt-text" title="${p}">${item.prompt}</div>
+          <div class="prompt-text" title="${item.prompt}">${item.prompt}</div>
           <div class="meta-row">
             <span>${item.size} &middot; ${item.quality}</span>
             <span>${item.created_at}</span>

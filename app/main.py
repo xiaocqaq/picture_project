@@ -157,7 +157,6 @@ async def serve_image(filename: str):
 async def serve_thumb(filename: str):
     thumb_path = Path(THUMBS_DIR) / filename
     if not thumb_path.exists():
-        # 缩略图不存在时尝试从原图生成
         original = Path(IMAGES_DIR) / filename
         if not original.exists():
             raise HTTPException(404, "Image not found")
